@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>나만의 12단계 커스텀 수박게임</title>
+  <!-- Matter.js 물리 엔진 불러오기 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background-color: #fdf6e3;
+      font-family: 'Malgun Gothic', sans-serif;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #ui {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 8px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #5c4033;
+    }
+    #game-container {
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      justify-content: center;
+    }
+    canvas {
+      width: 100% !important;
+      height: auto !important;
+      max-height: 75vh;
+      border: 4px solid #8b5a2b;
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      background-color: #fffaf0;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="ui">
+    <div>점수: <span id="score">0</span></div>
+    <div>다음: <span id="next-item">1단계</span></div>
+  </div>
+  <div id="game-container"></div>
+
+  <script>
+    // ==========================================
+    // [12단계 커스텀 설정 영역] 알려주신 순서 적용 완료!
+    // ==========================================
+    const ITEMS = [
+      { level: 0, radius: 16,  score: 2,    img: 'SG6.jpg' },   // 1단계 (가장 작음)
+      { level: 1, radius: 22,  score: 4,    img: 'SG2.jpg' },   // 2단계
+      { level: 2, radius: 29,  score: 8,    img: 'SG10.jpg' },  // 3단계
+      { level: 3, radius: 36,  score: 16,   img: 'SG3.jpg' },   // 4단계
+      { level: 4, radius: 44,  score: 32,   img: 'SG12.jpg' },  // 5단계
+      { level: 5, radius: 53,  score: 64,   img: 'SG8.jpg' },   // 6단계
+      { level: 6, radius: 63,  score: 128,  img: 'SG7.jpg' },   // 7단계
+      { level: 7, radius: 74,  score: 256,  img: 'SG11.jpg' },  // 8단계
+      { level: 8, radius: 86,  score: 512,  img: 'SG1.jpg' },   // 9단계
+      { level: 9, radius: 99,  score: 1024, img: 'SG9.jpg' },  // 10단계
+      { level: 10,radius: 113, score: 2048, img: 'SG4.jpg' },  // 11단계
+      { level: 11,radius: 130, score: 4096, img: 'SG5.jpg' }   // 12단계 (가장 큼)
+    ];
+
+    const ORIGINAL_IMG_SIZE = 200; // 원본 이미지 픽셀 크기 (필요시 수정)
+    // ==========================================
+
+    const { Engine, Render, Runner, Bodies, World, Events, Body } = Matter;
+
+    const width = 420;
+    const height = 620;
+    const deadLineY = 110;
+
+    const engine = Engine.create();
+    const world = engine.world;
+
+    const render = Render.create({
+      element: document.getElementById('game-container'),
+      engine: engine,
+      options: {
+        width: width,
+        height: height,
+        wireframes: false,
+        background: '#fffaf0'
+      }
+    });
+
+    Render.run(render);
+    const runner = Runner.create();
+    Runner.run(runner, engine);
+
+    // 벽과 바닥 생성
+    const wallOptions = { isStatic: true, render: { fillStyle: '#8b5a2b' } };
+    const ground = Bodies.rectangle(width / 2, height + 25, width + 50, 50, wallOptions);
+    const leftWall = Bodies.rectangle(-25, height / 2, 50, height, wallOptions);
+    const rightWall = Bodies.rectangle(width + 25, height / 2, 50, height, wallOptions);
+    
+    const deadLine = Bodies.rectangle(width / 2, deadLineY, width, 2, {
+      isStatic: true,
+      isSensor: true,
+      render: { fillStyle: 'rgba(255, 0, 0, 0.4)' }
+    });
+
+    World.add(world, [ground, leftWall, rightWall, deadLine]);
+
+    let score = 0;
+    let currentBody = null;
+    let currentLevel = 0;
+    let nextLevel = Math.floor(Math.random() * 5); // 1~5단계 중 랜덤 등장
+    let isClickable = true;
+    let isGameOver = false;
+
+    function createItemBody(x, y, level, isStatic = false) {
+      const item = ITEMS[level];
+      const scale = (item.radius * 2) / ORIGINAL_IMG_SIZE;
+
+      const body = Bodies.circle(x, y, item.radius, {
+        isStatic: isStatic,
+        restitution: 0.2,
+        friction: 0.1,
+        label: 'item_' + level,
+        render: {
+          sprite: {
+            texture: item.img,
+            xScale: scale,
+            yScale: scale
+          }
+        }
+      });
+      body.level = level;
+      return body;
+    }
+
+    function spawnNewItem() {
+      if (isGameOver) return;
+      currentLevel = nextLevel;
+      nextLevel = Math.floor(Math.random() * 5);
+      document.getElementById('next-item').innerText = (nextLevel + 1) + '단계';
+
+      currentBody = createItemBody(width / 2, 50, currentLevel, true);
+      World.add(world, currentBody);
+      isClickable = true;
+    }
+
+    function handleMove(clientX) {
+      if (!currentBody || !isClickable || isGameOver) return;
+      const canvas = render.canvas;
+      const rect = canvas.getBoundingClientRect();
+      
+      const scaleX = width / rect.width;
+      let mouseX = (clientX - rect.left) * scaleX;
+      
+      const radius = ITEMS[currentLevel].radius;
+      if (mouseX < radius + 5) mouseX = radius + 5;
+      if (mouseX > width - radius - 5) mouseX = width - radius - 5;
+
+      Body.setPosition(currentBody, { x: mouseX, y: 50 });
+    }
+
+    function dropItem() {
+      if (!currentBody || !isClickable || isGameOver) return;
+      isClickable = false;
+
+      Body.setStatic(currentBody, false);
+      currentBody = null;
+
+      setTimeout(() => {
+        spawnNewItem();
+      }, 600);
+    }
+
+    // PC 마우스 조작
+    render.canvas.addEventListener('mousemove', (e) => {
+      handleMove(e.clientX);
+    });
+    render.canvas.addEventListener('click', () => {
+      dropItem();
+    });
+
+    // 모바일 터치 조작
+    render.canvas.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 0) {
+        handleMove(e.touches[0].clientX);
+      }
+    }, { passive: true });
+
+    render.canvas.addEventListener('touchend', (e) => {
+      dropItem();
+    });
+
+    // 같은 단계 충돌 시 합치기 (12단계인 SG5.jpg는 최고 단계이므로 더 안 합쳐짐)
+    Events.on(engine, 'collisionStart', (event) => {
+      const pairs = event.pairs;
+
+      for (let i = 0; i < pairs.length; i++) {
+        const bodyA = pairs[i].bodyA;
+        const bodyB = pairs[i].bodyB;
+
+        if (bodyA.level !== undefined && bodyB.level !== undefined) {
+          if (bodyA.level === bodyB.level && !bodyA.isMerged && !bodyB.isMerged) {
+            bodyA.isMerged = true;
+            bodyB.isMerged = true;
+
+            const newLevel = bodyA.level + 1;
+            const midX = (bodyA.position.x + bodyB.position.x) / 2;
+            const midY = (bodyA.position.y + bodyB.position.y) / 2;
+
+            World.remove(world, [bodyA, bodyB]);
+
+            score += ITEMS[bodyA.level].score;
+            document.getElementById('score').innerText = score;
+
+            // 12단계(인덱스 11)보다 작을 때만 다음 단계 생성
+            if (newLevel < ITEMS.length) {
+              const newBody = createItemBody(midX, midY, newLevel, false);
+              World.add(world, newBody);
+            }
+          }
+        }
+      }
+    });
+
+    // 게임 오버 체크
+    Events.on(engine, 'afterUpdate', () => {
+      if (isGameOver) return;
+      const bodies = Matter.Composite.allBodies(world);
+
+      for (let body of bodies) {
+        if (!body.isStatic && body.level !== undefined && body.speed < 0.2) {
+          if (body.position.y - ITEMS[body.level].radius < deadLineY) {
+            isGameOver = true;
+            alert('게임 오버! 최종 점수: ' + score + '점');
+            location.reload();
+            break;
+          }
+        }
+      }
+    });
+
+    spawnNewItem();
+  </script>
+</body>
+</html>
